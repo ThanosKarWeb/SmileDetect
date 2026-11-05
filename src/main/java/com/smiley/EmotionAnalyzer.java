@@ -42,10 +42,14 @@ final class EmotionAnalyzer implements AutoCloseable {
             "neutral", "happiness", "surprise", "sadness",
             "anger", "disgust", "fear", "contempt"
     };
+    private static final int SCORE_HISTORY_SIZE = 5;
 
     private final OrtSession session;
     private final String inputName;
     private final CascadeClassifier faceDetector;
+    private final float[][] scoreHistory = new float[SCORE_HISTORY_SIZE][LABELS.length];
+    private int scoreHistorySize;
+    private int nextScoreHistoryIndex;
     private int stableClassIndex = -1;
     private int candidateClassIndex = -1;
     private int candidateFrames;
@@ -81,6 +85,8 @@ final class EmotionAnalyzer implements AutoCloseable {
                 stableClassIndex = -1;
                 candidateClassIndex = -1;
                 candidateFrames = 0;
+                scoreHistorySize = 0;
+                nextScoreHistoryIndex = 0;
                 return new Analysis(Expression.NEUTRAL, "No face detected");
             }
 
@@ -111,12 +117,11 @@ final class EmotionAnalyzer implements AutoCloseable {
              OrtSession.Result result = session.run(Map.of(inputName, tensor))) {
             Object value = result.get(0).getValue();
             float[] scores = value instanceof float[][] batch ? batch[0] : (float[]) value;
-            int detectedClassIndex = 0;
-            for (int index = 1; index < scores.length; index++) {
-                if (scores[index] > scores[detectedClassIndex]) {
-                    detectedClassIndex = index;
-                }
+            if (scores.length != LABELS.length) {
+                throw new IllegalStateException("Expected " + LABELS.length
+                        + " emotion scores, got " + scores.length);
             }
+            int detectedClassIndex = smoothClassIndex(scores);
 
             if (stableClassIndex < 0) {
                 stableClassIndex = detectedClassIndex;
@@ -139,6 +144,42 @@ final class EmotionAnalyzer implements AutoCloseable {
             };
             return new Analysis(expression, LABELS[stableClassIndex]);
         }
+    }
+
+    private int smoothClassIndex(float[] scores) {
+        float maxScore = scores[0];
+        for (int index = 1; index < scores.length; index++) {
+            maxScore = Math.max(maxScore, scores[index]);
+        }
+
+        double exponentialSum = 0;
+        float[] probabilities = new float[scores.length];
+        for (int index = 0; index < scores.length; index++) {
+            probabilities[index] = (float) Math.exp(scores[index] - maxScore);
+            exponentialSum += probabilities[index];
+        }
+        for (int index = 0; index < probabilities.length; index++) {
+            probabilities[index] /= (float) exponentialSum;
+        }
+
+        System.arraycopy(probabilities, 0, scoreHistory[nextScoreHistoryIndex], 0, probabilities.length);
+        nextScoreHistoryIndex = (nextScoreHistoryIndex + 1) % SCORE_HISTORY_SIZE;
+        scoreHistorySize = Math.min(scoreHistorySize + 1, SCORE_HISTORY_SIZE);
+
+        int bestClassIndex = 0;
+        float bestAverage = -1;
+        for (int classIndex = 0; classIndex < LABELS.length; classIndex++) {
+            float average = 0;
+            for (int historyIndex = 0; historyIndex < scoreHistorySize; historyIndex++) {
+                average += scoreHistory[historyIndex][classIndex];
+            }
+            average /= scoreHistorySize;
+            if (average > bestAverage) {
+                bestAverage = average;
+                bestClassIndex = classIndex;
+            }
+        }
+        return bestClassIndex;
     }
 
     @Override

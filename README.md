@@ -37,4 +37,4 @@ Audio credits: “Football Crowd” by GoGo and “Crying” by Mike Koenig, lic
 mvn package
 ```
 
-The application requires the model files at the paths created by the download script when camera analysis starts. The model classifies eight FER+ categories; Smiley maps happiness to a smile, sadness to a sad face, and other categories to a neutral face.
+The application requires the model files at the paths created by the download script when camera analysis starts. The model classifies eight FER+ categories; Smiley maps happiness to a smile, sadness to a sad face, and other categories to a neutral face. Scores are averaged across the latest five frames to reduce brief classification flicker.
