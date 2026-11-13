@@ -6,4 +6,8 @@ public class Alpha {
     //keep working on the featureX branch
 
     //changes for FeatureZ 
+
+    public void aMethod(){
+        
+    }
 }
